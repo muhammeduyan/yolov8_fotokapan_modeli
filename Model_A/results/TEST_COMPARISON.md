@@ -1,6 +1,6 @@
 # Model A Test Karşılaştırma Raporu (Ham YOLOv8n vs. KNN/OOD Filtreli)
 
-Bu rapor, **Ham Model A (KNN/OOD olmadan YOLOv8n)** ile **KNN/OOD Filtreli Model A (YOLOv8n + ResNet-50 Çift Bankalı KNN & Alt-Uzay Filtresi)** modellerinin aynı **300 görsellik test seti** üzerindeki karşılaştırmalı sonuçlarını içerir.
+Bu rapor, **Ham Model A (KNN/OOD olmadan YOLOv8n)** ile **KNN/OOD Filtreli Model A (YOLOv8n + ResNet-50 Çift Bankalı KNN & Alt-Uzay Filtresi)** modellerinin hem **300 görsellik ID test seti** (`v0.3_wild_boar_closeup/images/test`) hem de **378 görsellik karma test seti** (`/Users/muhammed/Desktop/test`) üzerindeki karşılaştırmalı sonuçlarını içerir.
 
 ---
 
@@ -39,7 +39,40 @@ Bu rapor, **Ham Model A (KNN/OOD olmadan YOLOv8n)** ile **KNN/OOD Filtreli Model
 
 ---
 
-## 3. Kısa Değerlendirme
+## 3. Ana Karşılaştırma Tablosu (Karma Test Seti — 378 Görsel, 130 GT `wild_boar` Kutusu)
 
-- **Yanlış Pozitif Azalması ve F1 Artışı:** KNN/OOD filtresi, 300 test görselindeki yanlış pozitifleri `58` → `43` (`-%25.86`) düşürerek Precision'ı `+2.86` puan (`%86.88` → `%89.74`), `F1-Score`'u ise `IoU >= 0.50` seviyesinde `+0.46` puan (`%86.78` → `%87.24`) ve `IoU >= 0.75` seviyesinde `+0.99` puan (`%80.68` → `%81.67`) artırmıştır.
-- **Recall ve mAP Ödünleşimi:** Eşik altında kalan `8` gerçek domuz kutusu nedeniyle Recall `-1.81` puan (`%86.68` → `%84.88`), standart `mAP@0.5 (conf = 0.001)` ise `0.9210` → `0.8957` (`-0.0253`) olarak gerçekleşmiştir.
+> Test seti: `/Users/muhammed/Desktop/test` (`80` `wild_boar` + `80` `wild_goat` + `79` `equus_quagga` + `79` `loxodonta_africana` + `60` `empty`; toplam `130` adet GT `wild_boar` kutusu, yalnızca `wild_boar` sınıfında GT bulunur). Çalışma noktası `conf >= 0.25`, standart mAP `conf = 0.001`, kalibrasyon eşiği `tau = 0.7000`, cihaz `mps`.
+
+| Metrik | Ham Model A (KNN/OOD Yok) | KNN/OOD Filtreli Model A (`tau=0.7000`) | Fark (Δ) |
+|---|---:|---:|---:|
+| **Toplam Tahmin Kutusu (`conf >= 0.25`)** | `313` | `139` | **`-174`** (`-%55.59`) |
+| **True Positives (TP, `IoU >= 0.50`)** | `108` | `106` | `-2` |
+| **False Positives (FP, `IoU >= 0.50`)** | `205` | `33` | **`-172`** (`-%83.90`) |
+| **False Negatives (FN, `IoU >= 0.50`)** | `22` | `24` | `+2` |
+| **Precision (`IoU >= 0.50`)** | `0.345048` (`%34.50`) | `0.762590` (`%76.26`) | **`+0.417542`** (`+41.75` puan) |
+| **Recall (`IoU >= 0.50`)** | `0.830769` (`%83.08`) | `0.815385` (`%81.54`) | `-0.015384` (`-1.54` puan) |
+| **F1-Score (`IoU >= 0.50`)** | `0.487585` (`%48.76`) | `0.788104` (`%78.81`) | **`+0.300519`** (`+30.05` puan) |
+| **Precision (`IoU >= 0.75`)** | `0.309904` (`%30.99`) | `0.690647` (`%69.06`) | **`+0.380743`** (`+38.07` puan) |
+| **Recall (`IoU >= 0.75`)** | `0.746154` (`%74.62`) | `0.738462` (`%73.85`) | `-0.007692` (`-0.77` puan) |
+| **F1-Score (`IoU >= 0.75`)** | `0.437923` (`%43.79`) | `0.713755` (`%71.38`) | **`+0.275832`** (`+27.58` puan) |
+| **mAP@0.5 (`conf >= 0.25` çalışma noktası)** | `0.622852` | `0.790152` | **`+0.167300`** |
+| **mAP@0.5 (`conf = 0.001` standart YOLO)** | `0.641030` | `0.829782` | **`+0.188752`** |
+| **mAP@0.5:0.95 (`conf = 0.001` standart YOLO)** | `0.534643` | `0.678458` | **`+0.143815`** |
+
+### Kategori Bazlı Dağılım (378 Görsel, `conf >= 0.25`)
+
+| Kategori | Görsel Sayısı | Ham Model A (Tespitli Görsel / FP) | KNN/OOD Filtreli (Tespitli Görsel / FP) | FP Azalması |
+|---|---:|---:|---:|---:|
+| `wild_boar` | `80` | `80` (`%100.00`) / `18` (`108` TP) | `79` (`%98.75`) / `11` (`106` TP) | `-7` (`-%38.89`) |
+| `wild_goat` | `80` | `66` (`%82.50`) / `111` | `12` (`%15.00`) / `14` | **`-97`** (`-%87.39`) |
+| `equus_quagga` | `79` | `21` (`%26.58`) / `31` | `4` (`%5.06`) / `4` | **`-27`** (`-%87.10`) |
+| `loxodonta_africana` | `79` | `28` (`%35.44`) / `33` | `2` (`%2.53`) / `2` | **`-31`** (`-%93.94`) |
+| `empty` | `60` | `8` (`%13.33`) / `12` | `2` (`%3.33`) / `2` | **`-10`** (`-%83.33`) |
+| **Toplam** | **`378`** | `203` / `205` (`108` TP) | `99` / `33` (`106` TP) | **`-172`** (`-%83.90`) |
+
+---
+
+## 4. Kısa Değerlendirme
+
+- **ID Test Seti (300 Görsel, `443` GT):** KNN/OOD filtresi yanlış pozitifleri `58` → `43` (`-%25.86`) düşürerek Precision'ı `+2.86` puan (`%86.88` → `%89.74`), `F1-Score`'u `IoU >= 0.50` seviyesinde `+0.46` puan (`%86.78` → `%87.24`) ve `IoU >= 0.75` seviyesinde `+0.99` puan (`%80.68` → `%81.67`) artırmıştır. Buna karşılık `8` gerçek domuz kutusunun elenmesi nedeniyle Recall `-1.81` puan (`%86.68` → `%84.88`), standart `mAP@0.5 (conf = 0.001)` ise `0.921035` → `0.895723` (`-0.025312`) olmuştur.
+- **Karma Test Seti (378 Görsel, `130` GT + `298` OOD/Boş Görsel):** Yabancı türler (`wild_goat`, `equus_quagga`, `loxodonta_africana`) ve boş kareler eklendiğinde Ham Model A'nın ürettiği `205` yanlış pozitif, KNN/OOD filtresiyle `33`'e (`-%83.90`) inmiştir; özellikle `wild_goat` (`111` → `14`, `-%87.39`) ve `loxodonta_africana` (`33` → `2`, `-%93.94`) üzerinde güçlü OOD bastırması sağlanmıştır. Yalnızca `2` TP kaybedilirken (`108` → `106`, Recall `-1.54` puan), Precision `+41.75` puan (`%34.50` → `%76.26`), `F1-Score (IoU >= 0.50)` `+30.05` puan (`%48.76` → `%78.81`) ve standart `mAP@0.5 (conf = 0.001)` `+0.188752` (`0.641030` → `0.829782`) yükselmiştir.
