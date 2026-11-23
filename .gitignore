@@ -1,0 +1,32 @@
+# Python & Virtual Environments
+**/.venv/
+**/venv/
+**/myenv/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.cache
+
+# OS & Editor Files
+.DS_Store
+**/.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Large External Datasets (Host on Hugging Face / Kaggle / Drive, NOT GitHub)
+v0.2_wild_boar/
+v0.3_wild_boar_closeup/
+
+# Generated Runs & Temporary Prediction Outputs
+**/runs/
+**/outputs/*
+!**/outputs/.gitkeep
+
+# Model Weights (Keep canonical weights under */model/, ignore stray checkpoints)
+*.pt
+*.pth
+!**/model/*.pt
+*.npz
+!**/model/*.npz
