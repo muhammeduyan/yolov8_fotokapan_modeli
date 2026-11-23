@@ -100,6 +100,8 @@ Fotokapan Görseli
 
 Eğitim eğrileri ve karmaşıklık matrisi `results/` klasöründedir (`results.png`, `confusion_matrix_normalized.png`, `results.csv`, `args.yaml`).
 
+> **300 Görsellik Test Seti Karşılaştırma Raporu:** Ham Model A (KNN/OOD yok) ile KNN/OOD Filtreli Model A'nın 300 test görseli (443 GT kutusu) üzerindeki `TP/FP/FN`, `Precision`, `Recall`, `F1-Score`, `mAP@0.5` ve `mAP@0.5:0.95` karşılaştırma tablosu için **[results/TEST_COMPARISON.md](results/TEST_COMPARISON.md)** dosyasına bakabilirsiniz.
+
 ---
 
 ## 5. Kullanılan Teknolojiler
@@ -128,6 +130,7 @@ Model_A/
 │   ├── knn_bank.npz                   # Kalibre edilmiş domuz & arka plan bankası (13 MB)
 │   └── benchmark_manifest.csv         # 100 negatif OOD benchmark manifesti
 ├── results/
+│   ├── TEST_COMPARISON.md             # 300 görsel test seti Ham vs. KNN/OOD karşılaştırma raporu
 │   ├── results.png                    # Eğitim kayıp & metrik grafikleri
 │   ├── confusion_matrix_normalized.png# Normalize karmaşıklık matrisi
 │   ├── results.csv                    # Epoch bazlı sayısal metrikler

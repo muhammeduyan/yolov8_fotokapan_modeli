@@ -22,4 +22,4 @@ pip install -r requirements.txt
 ./run_demo.sh
 ```
 
-Ayrıntılı mimari, benchmark sonuçları ve eğitim komutları için **[Model_A/README.md](Model_A/README.md)** dosyasına bakabilirsiniz.
+Ayrıntılı mimari, benchmark sonuçları ve eğitim komutları için **[Model_A/README.md](Model_A/README.md)** dosyasına; 300 görsellik test seti üzerinde **Ham Model A vs. KNN/OOD Filtreli Model A** karşılaştırma tablosu için **[Model_A/results/TEST_COMPARISON.md](Model_A/results/TEST_COMPARISON.md)** raporuna bakabilirsiniz.
