@@ -8,7 +8,7 @@ if [ ! -x "$PYTHON_BIN" ]; then
 fi
 
 echo "=============================================================================="
-echo "🚀 MODEL A (LOCAL WILD BOAR v0.4) - KNN & OOD FİLTRE DEMOSU"
+echo "🚀 MODEL A (LOCAL WILD BOAR v0.4) - TEMİZ LETTERBOX + OOD FİLTRE DEMOSU"
 echo "=============================================================================="
 echo ""
 echo "👉 1. ADIM: Dağılım Dışı (OOD) Yaban Keçisi Görseli Test Ediliyor..."
@@ -23,7 +23,7 @@ echo ""
 "$PYTHON_BIN" src/predict.py --source samples/01_wild_boar.jpg
 
 echo ""
-echo "👉 3. ADIM: Kalibrasyon Raporu & 100 Negatif Görsel Benchmark..."
-echo "Komut: $PYTHON_BIN src/predict.py --benchmark"
+echo "👉 3. ADIM: Otomatik Kalibrasyon ve Öğrenilen Parametre Raporu..."
+echo "Komut: $PYTHON_BIN src/predict.py --calibrate"
 echo ""
-"$PYTHON_BIN" src/predict.py --benchmark
+"$PYTHON_BIN" src/predict.py --calibrate
