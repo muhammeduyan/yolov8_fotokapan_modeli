@@ -18,18 +18,30 @@ except ImportError:
     from detector import ModelAKNNFilter, PROJECT_ROOT
 
 
+def _resolve_source_path(source_path):
+    """Göreli görsel yolunu önce çalışma dizininde, bulunamazsa Model_A kökünde arar."""
+    p = Path(str(source_path)).expanduser()
+    if not p.is_absolute() and not p.exists():
+        candidate = PROJECT_ROOT / p
+        if candidate.exists():
+            return str(candidate)
+    return str(source_path)
+
+
 def print_calibration_report(detector):
+    """Referans bankası istatistiklerini ve otomatik kalibrasyon (tau) özetini yazdırır."""
     stats = detector.get_calibration_summary()
+    n_bg_patches = stats.get("n_bg_patches", 0)
     print("\n" + "=" * 78)
     print("OTOMATİK EŞİK KALİBRASYONU RAPORU (PERCENTILE / TPR-95 KALİBRASYONU)")
     print("=" * 78)
     print(f"Model / Referans Bankası  : {Path(stats['model_path']).name} + {Path(stats['bank_path']).name}")
     print(f"1. Domuz Referans Bankası : {stats['n_train_imgs']} görsel | {stats['n_train_boxes']} gerçek yaban domuzu kutusu")
-    print(f"2. Arka Plan Bankası (BG) : {stats.get('n_bg_patches', 1738)} adet taş/kaya/ağaç/çalı/ot yaması (IoU=0)")
+    print(f"2. Arka Plan Bankası (BG) : {n_bg_patches} adet taş/kaya/ağaç/çalı/ot yaması (IoU=0)")
     print(f"3. Kalibrasyon Seti (Val) : {stats['n_val_imgs']} görsel  | {stats['n_val_boxes']} gerçek yaban domuzu kutusu")
     print(f"4. Doğrulama Seti (Test)  : {stats['n_test_imgs']} görsel  | {stats['n_test_boxes']} gerçek yaban domuzu kutusu")
     print("-" * 78)
-    print("DOĞRULAMA (VAL) SETİ BENZERLİK DAĞILIMI (457 Gerçek Yaban Domuzu):")
+    print(f"DOĞRULAMA (VAL) SETİ BENZERLİK DAĞILIMI ({stats['n_val_boxes']} Gerçek Yaban Domuzu):")
     print(f"   • Ortalama (Mean) Benzerlik    : {stats['val_mean']:.4f}")
     print(f"   • Ortanca (Median / %50)       : {stats['val_median']:.4f}")
     print(f"   • 10. Yüzdelik Dilim (%90 TPR) : {stats['val_p10']:.4f}")
@@ -46,23 +58,30 @@ def print_calibration_report(detector):
         f"(%{stats['test_tpr_pct']:.2f}) | Test Ortanca Benzerlik: {stats['test_median']:.4f}"
     )
     if "bg_reject_pct" in stats:
-        print(f"🪨 KAYA/AĞAÇ ARKA PLAN REDDETME ORANI : %{stats['bg_reject_pct']:.2f} ({stats.get('n_bg_patches', 1738)} arka plan yamasında)")
+        print(f"🪨 KAYA/AĞAÇ ARKA PLAN REDDETME ORANI : %{stats['bg_reject_pct']:.2f} ({n_bg_patches} arka plan yamasında)")
     print("=" * 78)
 
 
 def run_single_prediction(detector, source_path, save_dir, conf=0.25):
+    """Tek bir görselde ham YOLO ve KNN/OOD filtreli tespitleri çalıştırıp sonuçları raporlar."""
+    resolved_source = _resolve_source_path(source_path)
+    stats = detector.get_calibration_summary()
+    n_boar_boxes = f"{stats['n_train_boxes']:,}".replace(",", ".")
+    n_bg_patches = f"{stats.get('n_bg_patches', 0):,}".replace(",", ".")
+    target_tpr = 100.0 - float(getattr(detector, "percentile", 5.0))
+
     mode_label = (
-        f"OTOMATİK KALİBRELİ (%95 Val TPR -> tau={detector.threshold:.4f})"
+        f"OTOMATİK KALİBRELİ (%{target_tpr:g} Val TPR -> tau={detector.threshold:.4f})"
         if detector.is_auto_calibrated
         else f"MANUEL ({detector.threshold:.4f})"
     )
     print("=" * 78)
-    print(f"GÖRSEL ANALİZİ : {source_path}")
+    print(f"GÖRSEL ANALİZİ : {resolved_source}")
     print(f"Eşik Değeri    : {mode_label}")
-    print(f"Çift Referans  : 1.811 Domuz Kutusu + 1.738 Kaya/Ağaç/Çalı Arka Plan Yaması (IoU=0)")
+    print(f"Çift Referans  : {n_boar_boxes} Domuz Kutusu + {n_bg_patches} Kaya/Ağaç/Çalı Arka Plan Yaması (IoU=0)")
     print("=" * 78)
 
-    res = detector.predict(source_path, conf=conf, save_dir=save_dir)
+    res = detector.predict(resolved_source, conf=conf, save_dir=save_dir)
 
     print(f"\n1. Standart Model A (Filtresiz):")
     if res["raw_detections"]:
@@ -95,6 +114,7 @@ def run_single_prediction(detector, source_path, save_dir, conf=0.25):
 
 
 def run_benchmark(detector):
+    """Kalibrasyon özetini ve negatif OOD challenge görselleri üzerindeki yanlış pozitif oranlarını raporlar."""
     print_calibration_report(detector)
 
     manifest_path = PROJECT_ROOT / "model" / "benchmark_manifest.csv"
@@ -103,13 +123,21 @@ def run_benchmark(detector):
         return
 
     df = pd.read_csv(str(manifest_path), encoding="utf-8-sig")
+    if df.empty or not {"expected_class", "filename"}.issubset(df.columns):
+        print(f"Hata: Geçersiz veya boş benchmark manifesti: {manifest_path}")
+        return
+
     d = detector.calibration_data
+    if d is None or "s_ch" not in d or "chal_fnames" not in d:
+        print("Hata: Referans bankasında challenge benchmark verileri (s_ch, chal_fnames) bulunamadı.")
+        return
+
     s_ch = d["s_ch"]
     chal_fnames = d["chal_fnames"]
     tau = detector.threshold
 
     print("\n" + "=" * 78)
-    print(f"100 NEGATİF CHALLENGE GÖRSELİ BENCHMARK TESTİ (Otomatik Eşik tau = {tau:.4f})")
+    print(f"{len(df)} NEGATİF CHALLENGE GÖRSELİ BENCHMARK TESTİ (Otomatik Eşik tau = {tau:.4f})")
     print("=" * 78)
 
     results_by_species = {}
@@ -132,17 +160,21 @@ def run_benchmark(detector):
 
     tot_raw, tot_filt, tot_all = 0, 0, 0
     for sp, (raw, filt, tot) in sorted(results_by_species.items()):
+        raw_pct = (raw / tot * 100) if tot > 0 else 0.0
+        filt_pct = (filt / tot * 100) if tot > 0 else 0.0
         print(
-            f"{sp:<22} | {raw:2d}/{tot} (%{raw/tot*100:5.1f})          | {filt:2d}/{tot} (%{filt/tot*100:5.1f})"
+            f"{sp:<22} | {raw:2d}/{tot} (%{raw_pct:5.1f})          | {filt:2d}/{tot} (%{filt_pct:5.1f})"
         )
         tot_raw += raw
         tot_filt += filt
         tot_all += tot
 
     print("-" * 74)
-    reduction = ((tot_raw - tot_filt) / tot_raw * 100) if tot_raw > 0 else 0
+    reduction = ((tot_raw - tot_filt) / tot_raw * 100) if tot_raw > 0 else 0.0
+    tot_raw_pct = (tot_raw / tot_all * 100) if tot_all > 0 else 0.0
+    tot_filt_pct = (tot_filt / tot_all * 100) if tot_all > 0 else 0.0
     print(
-        f"{'GENEL TOPLAM':<22} | {tot_raw:2d}/{tot_all} (%{tot_raw/tot_all*100:5.1f})         | {tot_filt:2d}/{tot_all} (%{tot_filt/tot_all*100:5.1f})"
+        f"{'GENEL TOPLAM':<22} | {tot_raw:2d}/{tot_all} (%{tot_raw_pct:5.1f})         | {tot_filt:2d}/{tot_all} (%{tot_filt_pct:5.1f})"
     )
     print(f"\n🎯 Yanlış Pozitif (False Positive) Azaltma Başarısı : %{reduction:.1f} ({tot_raw} -> {tot_filt})")
     stats = detector.get_calibration_summary()
@@ -154,6 +186,7 @@ def run_benchmark(detector):
 
 
 def main():
+    """Komut satırı argümanlarını ayrıştırır ve kalibrasyon, benchmark veya tekil görsel tahmini çalıştırır."""
     parser = argparse.ArgumentParser(
         description="Model A Otomatik Kalibreli KNN/Alt-Uzay Tabanlı OOD Filtreleme"
     )
@@ -184,13 +217,13 @@ def main():
     parser.add_argument(
         "--save-dir",
         type=str,
-        default="outputs/knn_predictions",
-        help="Sonuç görsellerinin kaydedileceği klasör",
+        default=str(PROJECT_ROOT / "outputs" / "knn_predictions"),
+        help="Sonuç görsellerinin kaydedileceği klasör (varsayılan: Model_A/outputs/knn_predictions)",
     )
     parser.add_argument(
         "--calibrate",
         action="store_true",
-        help="1.800 görsellik v0.2_wild_boar veri seti üzerinden otomatik eşik kalibrasyonu raporunu göster",
+        help="Kalibre edilmiş referans bankası üzerinden otomatik eşik kalibrasyonu raporunu göster",
     )
     parser.add_argument(
         "--benchmark",
@@ -199,6 +232,11 @@ def main():
     )
 
     args = parser.parse_args()
+
+    if not (0.0 <= args.percentile <= 100.0):
+        parser.error("--percentile değeri 0 ile 100 arasında olmalıdır.")
+    if not (0.0 <= args.conf <= 1.0):
+        parser.error("--conf değeri 0.0 ile 1.0 arasında olmalıdır.")
 
     detector = ModelAKNNFilter(threshold=args.threshold, percentile=args.percentile)
 
