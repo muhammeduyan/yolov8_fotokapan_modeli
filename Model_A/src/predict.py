@@ -29,13 +29,26 @@ def _resolve_source_path(source_path):
 
 
 def print_calibration_report(detector):
-    """Referans bankası istatistiklerini ve otomatik kalibrasyon (tau) özetini yazdırır."""
+    """Referans bankası istatistiklerini, sıfır-sabitli OOD parametrelerini ve otomatik kalibrasyon özetini yazdırır."""
     stats = detector.get_calibration_summary()
     n_bg_patches = stats.get("n_bg_patches", 0)
+    weights_str = ", ".join(
+        f"{name}={val:+.4f}" for name, val in zip(stats["feature_names"], stats["weights"])
+    )
     print("\n" + "=" * 78)
-    print("OTOMATİK EŞİK KALİBRASYONU RAPORU (PERCENTILE / TPR-95 KALİBRASYONU)")
+    print("OTOMATİK EŞİK KALİBRASYONU RAPORU (SIFIR SİHİRLİ SABİT / SIFIR SIZINTI)")
     print("=" * 78)
     print(f"Model / Referans Bankası  : {Path(stats['model_path']).name} + {Path(stats['bank_path']).name}")
+    print(
+        f"Mimari & Ön İşleme        : Letterbox (+%{stats['pad_ratio'] * 100:.0f} bağlam) | "
+        f"Saf 2048-D ResNet-50 | k={stats['k']}"
+    )
+    print(
+        f"Otomatik Alt-Uzay & OAS   : PCA p={stats['pca_dim']} (%{stats['pca_var_ratio'] * 100:.0f} varyans) | "
+        f"OAS alpha={stats['shrinkage_alpha']:.6f}"
+    )
+    print(f"Öğrenilen 4 Özellik Ağırl.: [{weights_str}] | bias={stats['bias']:+.4f} (L2={stats['l2_reg']:g})")
+    print("-" * 78)
     print(f"1. Domuz Referans Bankası : {stats['n_train_imgs']} görsel | {stats['n_train_boxes']} gerçek yaban domuzu kutusu")
     print(f"2. Arka Plan Bankası (BG) : {n_bg_patches} adet taş/kaya/ağaç/çalı/ot yaması (IoU=0)")
     print(f"3. Kalibrasyon Seti (Val) : {stats['n_val_imgs']} görsel  | {stats['n_val_boxes']} gerçek yaban domuzu kutusu")
@@ -45,25 +58,30 @@ def print_calibration_report(detector):
     print(f"   • Ortalama (Mean) Benzerlik    : {stats['val_mean']:.4f}")
     print(f"   • Ortanca (Median / %50)       : {stats['val_median']:.4f}")
     print(f"   • 10. Yüzdelik Dilim (%90 TPR) : {stats['val_p10']:.4f}")
-    print(f"   •  5. Yüzdelik Dilim (%95 TPR) : {stats['val_p05']:.4f}  <-- [OTOMATİK SEÇİLEN EŞİK (tau)]")
+    print(f"   •  5. Yüzdelik Dilim (%95 TPR) : {stats['val_p05']:.4f}")
     print(f"   •  1. Yüzdelik Dilim (%99 TPR) : {stats['val_p01']:.4f}")
     print("-" * 78)
-    print(f"✅ OTOMATİK KALİBRE EDİLEN EŞİK (tau) : {stats['calibrated_tau']:.4f}")
+    print(
+        f"✅ OTOMATİK KALİBRE EDİLEN EŞİK (tau) : {stats['calibrated_tau']:.4f} "
+        f"(Hedef: %{stats['target_val_tpr']:g} Val TPR, p={stats['percentile']:g})"
+    )
     print(
         f"✅ VAL SETİ GERÇEK DOMUZ KORUMA (TPR) : {stats['val_tpr_count']}/{stats['n_val_boxes']} "
         f"(%{stats['val_tpr_pct']:.2f})"
     )
     print(
         f"✅ TEST SETİ GERÇEK DOMUZ KORUMA (TPR): {stats['test_tpr_count']}/{stats['n_test_boxes']} "
-        f"(%{stats['test_tpr_pct']:.2f}) | Test Ortanca Benzerlik: {stats['test_median']:.4f}"
+        f"(%{stats['test_tpr_pct']:.2f}) | Test Ortanca Skor: {stats['test_median']:.4f}"
     )
-    if "bg_reject_pct" in stats:
-        print(f"🪨 KAYA/AĞAÇ ARKA PLAN REDDETME ORANI : %{stats['bg_reject_pct']:.2f} ({n_bg_patches} arka plan yamasında)")
+    print(
+        f"🪨 KAYA/AĞAÇ ARKA PLAN REDDETME ORANI : %{stats['bg_reject_pct']:.2f} "
+        f"({n_bg_patches} yamada | BG Ortanca Skor: {stats['bg_median']:.4f})"
+    )
     print("=" * 78)
 
 
 def run_single_prediction(detector, source_path, save_dir, conf=0.25):
-    """Tek bir görselde ham YOLO ve KNN/OOD filtreli tespitleri çalıştırıp sonuçları raporlar."""
+    """Tek bir görselde ham YOLO ve Letterbox + Çift Bankalı k-NN/PCA/Mahalanobis filtreli tespitleri raporlar."""
     resolved_source = _resolve_source_path(source_path)
     stats = detector.get_calibration_summary()
     n_boar_boxes = f"{stats['n_train_boxes']:,}".replace(",", ".")
@@ -77,6 +95,10 @@ def run_single_prediction(detector, source_path, save_dir, conf=0.25):
     )
     print("=" * 78)
     print(f"GÖRSEL ANALİZİ : {resolved_source}")
+    print(
+        f"Mimari         : Letterbox (+%{stats['pad_ratio'] * 100:.0f} bağlam) + "
+        f"Çift Bankalı k-NN (k={stats['k']}) / PCA (p={stats['pca_dim']}) / OAS Mahalanobis"
+    )
     print(f"Eşik Değeri    : {mode_label}")
     print(f"Çift Referans  : {n_boar_boxes} Domuz Kutusu + {n_bg_patches} Kaya/Ağaç/Çalı Arka Plan Yaması (IoU=0)")
     print("=" * 78)
@@ -90,7 +112,7 @@ def run_single_prediction(detector, source_path, save_dir, conf=0.25):
     else:
         print("   Tespit yok (Boş).")
 
-    print(f"\n2. Otomatik Kalibreli KNN / Alt-Uzay Filtreli Model A:")
+    print(f"\n2. Letterbox + Çift Bankalı k-NN / PCA / OAS-Mahalanobis Filtreli Model A:")
     if res["filtered_detections"]:
         for d in res["filtered_detections"]:
             print(
@@ -114,8 +136,21 @@ def run_single_prediction(detector, source_path, save_dir, conf=0.25):
 
 
 def run_benchmark(detector):
-    """Kalibrasyon özetini ve negatif OOD challenge görselleri üzerindeki yanlış pozitif oranlarını raporlar."""
+    """Kalibrasyon özetini ve (bankada mevcutsa) negatif OOD challenge benchmark raporunu yazdırır."""
     print_calibration_report(detector)
+
+    d = detector.calibration_data
+    if d is None or "s_ch" not in d or "chal_fnames" not in d:
+        print("\n" + "=" * 78)
+        print("BİLGİ: SIFIR-SIZINTI (ZERO-LEAKAGE) BANKA MODU")
+        print("=" * 78)
+        print(
+            "Bu temiz referans bankası (knn_bank.npz) veri sızıntısını önlemek amacıyla\n"
+            "önceden hesaplanmış OOD challenge skorları (s_ch / chal_fnames) içermez.\n"
+            "Harici test değerlendirmeleri için bağımsız test setleri üzerinde ModelAKNNFilter.predict() kullanın."
+        )
+        print("=" * 78)
+        return
 
     manifest_path = PROJECT_ROOT / "model" / "benchmark_manifest.csv"
     if not manifest_path.exists():
@@ -125,11 +160,6 @@ def run_benchmark(detector):
     df = pd.read_csv(str(manifest_path), encoding="utf-8-sig")
     if df.empty or not {"expected_class", "filename"}.issubset(df.columns):
         print(f"Hata: Geçersiz veya boş benchmark manifesti: {manifest_path}")
-        return
-
-    d = detector.calibration_data
-    if d is None or "s_ch" not in d or "chal_fnames" not in d:
-        print("Hata: Referans bankasında challenge benchmark verileri (s_ch, chal_fnames) bulunamadı.")
         return
 
     s_ch = d["s_ch"]
@@ -188,7 +218,7 @@ def run_benchmark(detector):
 def main():
     """Komut satırı argümanlarını ayrıştırır ve kalibrasyon, benchmark veya tekil görsel tahmini çalıştırır."""
     parser = argparse.ArgumentParser(
-        description="Model A Otomatik Kalibreli KNN/Alt-Uzay Tabanlı OOD Filtreleme"
+        description="Model A Temiz Letterbox + Çift Bankalı k-NN/PCA/OAS-Mahalanobis OOD Filtreleme"
     )
     parser.add_argument(
         "--source",
@@ -228,7 +258,7 @@ def main():
     parser.add_argument(
         "--benchmark",
         action="store_true",
-        help="Hem gerçek domuz (Val/Test) koruma oranını hem de 100 negatif OOD challenge testini çalıştır",
+        help="Kalibrasyon özetini ve (bankada mevcutsa) negatif OOD challenge benchmark raporunu göster",
     )
 
     args = parser.parse_args()

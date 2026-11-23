@@ -1,15 +1,15 @@
 """
 Model A (Local Wild Boar v0.4 - Tek Sınıflı Yaban Domuzu) için
-Çift Bankalı (Domuz vs. Arka Plan) ve Morfolojik Alt-Uzay Kalibreli OOD Filtresi
+Temiz ResNet-50 Öznitelik Uzayı Tabanlı Çift Bankalı OOD Filtresi.
 
 Bu modül:
-1. Eğitim setindeki 1.811 gerçek yaban domuzu kutusundan oluşturulan "Domuz Referans Bankası (U_tr)"
-   ve 140-boyutlu PCA Alt-Uzayı (Vp) ile,
-   domuz kutusu dışında kalan (IoU=0) taş, kaya, ağaç, çalı ve gece otlarından çıkarılan
-   1.738 yamalık "Arka Plan Referans Bankası (U_bg)" ve Ayırıcı Vektörü (w_fg) kullanır.
-2. Doğrulama (val) setindeki 457 gerçek yaban domuzu kutusu üzerinden eşik değerini (tau) otomatik kalibre eder.
-3. Çıkarım sırasında her aday kutuyu Domuz Bankası, Arka Plan Bankası ve morfolojik domuz uyumuna göre
-   değerlendirir; aynı karede kesinleşmiş (>=0.85) yetişkin domuz varsa sürü bireylerine destek uygular.
+1. Eğitim setindeki gerçek yaban domuzu kutularından oluşturulan Domuz Referans Bankası (U_tr),
+   %90 varyansı açıklayan PCA Alt-Uzayı (Vp) ve OAS (Oracle Approximating Shrinkage) büzülmeli
+   Mahalanobis uzaklığı ile birlikte, domuz dışı (IoU=0) Arka Plan Referans Bankasını (U_bg) kullanır.
+2. Tüm aday kutuları %10 bağlam paylı aspect-ratio koruyucu Letterbox kırpma (extract_letterbox_crop)
+   ile 224x224 boyutuna getirerek saf 2048 boyutlu ResNet-50 öznitelik uzayında değerlendirir.
+3. Eğitim setinde öğrenilen L2 Lojistik Regresyon ağırlıkları ve doğrulama (val) setinden kalibre
+   edilen eşik değeri (tau) ile karar verir; sıfır elle ayarlanmış sabit ve sıfır ImageNet sınıf kuralı içerir.
 """
 
 from pathlib import Path
@@ -23,8 +23,141 @@ from ultralytics import YOLO
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
+def extract_letterbox_crop(
+    img_bgr,
+    box_xyxy,
+    pad_ratio=0.10,
+    out_size=224,
+    pad_color=(114, 114, 114),
+):
+    """Verilen sınırlayıcı kutuyu her yönde pad_ratio oranında genişletir, görüntü sınırlarına
+    kırpar, en-boy oranını koruyarak out_size boyutuna ölçekler ve pad_color ile ortalayarak doldurur."""
+    if img_bgr is None or img_bgr.size == 0:
+        raise ValueError("Girdi görseli boş olamaz.")
+
+    h, w = img_bgr.shape[:2]
+    x1, y1, x2, y2 = [float(v) for v in box_xyxy]
+    bw = max(0.0, x2 - x1)
+    bh = max(0.0, y2 - y1)
+
+    pad_x = float(pad_ratio) * bw
+    pad_y = float(pad_ratio) * bh
+    ex1 = max(0, int(np.floor(x1 - pad_x)))
+    ey1 = max(0, int(np.floor(y1 - pad_y)))
+    ex2 = min(w, int(np.ceil(x2 + pad_x)))
+    ey2 = min(h, int(np.ceil(y2 + pad_y)))
+
+    if ex2 <= ex1 or ey2 <= ey1:
+        raise ValueError("Genişletilmiş kırpma kutusu boş veya geçersiz.")
+
+    crop = img_bgr[ey1:ey2, ex1:ex2]
+    if crop.ndim == 2:
+        crop = cv2.cvtColor(crop, cv2.COLOR_GRAY2BGR)
+
+    ch, cw = crop.shape[:2]
+    if ch == 0 or cw == 0:
+        raise ValueError("Kırpılan görsel bölgesi boş olamaz.")
+
+    scale = float(out_size) / float(max(ch, cw))
+    if cw >= ch:
+        new_w = int(out_size)
+        new_h = max(1, min(int(out_size), int(round(ch * scale))))
+    else:
+        new_h = int(out_size)
+        new_w = max(1, min(int(out_size), int(round(cw * scale))))
+
+    interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
+    resized = cv2.resize(crop, (new_w, new_h), interpolation=interp)
+
+    canvas = np.full((int(out_size), int(out_size), 3), pad_color, dtype=crop.dtype)
+    top = (int(out_size) - new_h) // 2
+    left = (int(out_size) - new_w) // 2
+    canvas[top : top + new_h, left : left + new_w] = resized
+    return canvas
+
+
+def l2_normalize(x):
+    """Verilen öznitelik vektörünü veya matrisini son eksen boyunca L2 birim uzunluğa normalize eder."""
+    x_arr = np.asarray(x, dtype=np.float32)
+    norm = np.linalg.norm(x_arr, axis=-1, keepdims=True)
+    return x_arr / (norm + 1e-8)
+
+
+def sigmoid(x):
+    """Sayısal taşmayı önleyerek girdi dizisi veya skaler üzerinde sigmoid dönüşümü uygular."""
+    x_clip = np.clip(np.asarray(x, dtype=np.float64), -60.0, 60.0)
+    return 1.0 / (1.0 + np.exp(-x_clip))
+
+
+def compute_knn_cosine_mean(U, U_bank, k=5, exclude_self=False):
+    """L2-normalize öznitelikler ile referans bankası arasındaki en yüksek k kosinüs benzerliğinin ortalamasını döndürür."""
+    sim = np.asarray(U, dtype=np.float32) @ np.asarray(U_bank, dtype=np.float32).T
+    if exclude_self:
+        if sim.shape[0] != sim.shape[1]:
+            raise ValueError("exclude_self=True iken U ve U_bank aynı boyutta olmalıdır.")
+        np.fill_diagonal(sim, -np.inf)
+        k_eff = min(int(k), U_bank.shape[0] - 1)
+    else:
+        k_eff = min(int(k), U_bank.shape[0])
+
+    if k_eff < 1:
+        raise ValueError(f"Geçerli KNN komşu sayısı en az 1 olmalıdır: {k_eff}")
+
+    top_k = np.partition(sim, -k_eff, axis=1)[:, -k_eff:]
+    return np.mean(top_k, axis=1).astype(np.float64)
+
+
+def compute_pca_residual(Uc, Vp):
+    """Merkezlenmiş özniteliklerin PCA alt-uzayına dik kalan L2 artık uzaklığını hesaplar."""
+    Uc64 = np.asarray(Uc, dtype=np.float64)
+    Vp64 = np.asarray(Vp, dtype=np.float64)
+    proj = (Uc64 @ Vp64.T) @ Vp64
+    return np.linalg.norm(Uc64 - proj, axis=1)
+
+
+def compute_oas_maha_dist(Uc, maha_V, maha_eigvals, maha_alpha, maha_beta):
+    """OAS büzülmeli kovaryans matrisinin öz-ayrışımı üzerinden tam Mahalanobis uzaklığını hesaplar."""
+    Uc64 = np.asarray(Uc, dtype=np.float64)
+    V64 = np.asarray(maha_V, dtype=np.float64)
+    eig64 = np.asarray(maha_eigvals, dtype=np.float64)
+    alpha = float(maha_alpha)
+    beta = max(float(maha_beta), 1e-12)
+
+    inv_eig = 1.0 / ((1.0 - alpha) * eig64 + beta)
+    proj = Uc64 @ V64.T
+    norm_sq = np.sum(Uc64 ** 2, axis=1)
+    proj_sq = np.sum(proj ** 2, axis=1)
+    orth_sq = np.maximum(0.0, norm_sq - proj_sq)
+    maha_sq = np.sum((proj ** 2) * inv_eig, axis=1) + orth_sq / beta
+    return np.sqrt(np.maximum(0.0, maha_sq))
+
+
+def extract_ood_signals(
+    U,
+    U_tr,
+    U_bg,
+    mu,
+    Vp,
+    maha_V,
+    maha_eigvals,
+    maha_alpha,
+    maha_beta,
+    k=5,
+    exclude_self_tr=False,
+    exclude_self_bg=False,
+):
+    """L2-normalize ResNet-50 özniteliklerinden 4 saf OOD sinyalini ([knn_boar, -knn_bg, -pca_residual, -maha_dist]) üretir."""
+    knn_boar = compute_knn_cosine_mean(U, U_tr, k=k, exclude_self=exclude_self_tr)
+    knn_bg = compute_knn_cosine_mean(U, U_bg, k=k, exclude_self=exclude_self_bg)
+    Uc = np.asarray(U, dtype=np.float64) - np.asarray(mu, dtype=np.float64)
+    pca_res = compute_pca_residual(Uc, Vp)
+    maha_dist = compute_oas_maha_dist(Uc, maha_V, maha_eigvals, maha_alpha, maha_beta)
+    return np.column_stack([knn_boar, -knn_bg, -pca_res, -maha_dist])
+
+
 class ModelAKNNFilter:
-    """YOLOv8n tespitlerini ResNet-50 çift bankalı KNN ve PCA alt-uzayı ile filtreleyen sınıf."""
+    """YOLOv8n tespitlerini saf ResNet-50 öznitelik uzayında çift bankalı KNN, PCA alt-uzayı
+    ve OAS Mahalanobis uzaklığı ile filtreleyen sınıf."""
 
     def __init__(
         self,
@@ -34,8 +167,8 @@ class ModelAKNNFilter:
         percentile=5.0,
         device=None,
     ):
-        """Model ağırlıklarını, ResNet-50 omurgasını ve kalibre edilmiş referans bankasını yükler;
-        cihazı (CUDA/MPS/CPU) ve otomatik ya da manuel benzerlik eşiğini ayarlar."""
+        """Model ağırlıklarını, dondurulmuş ResNet-50 omurgasını ve kalibre edilmiş referans
+        bankasını yükler; cihazı ve otomatik ya da manuel benzerlik eşiğini ayarlar."""
         self.percentile = float(percentile)
         if not (0.0 <= self.percentile <= 100.0):
             raise ValueError(f"percentile 0 ile 100 arasında olmalıdır: {percentile}")
@@ -59,31 +192,36 @@ class ModelAKNNFilter:
         if not self.model_path.exists():
             raise FileNotFoundError(f"YOLO model dosyası bulunamadı: {self.model_path}")
 
-        # 1. Local Wild Boar v0.4 (YOLOv8n - Close-Up + Arka Plan İnce Ayarlı) yükleniyor
+        # 1. Local Wild Boar v0.4 (YOLOv8n) yükleniyor
         self.yolo = YOLO(str(self.model_path))
 
-        # 2. Morfolojik ve doku öznitelik çıkarıcı (Dondurulmuş ResNet50)
+        # 2. Saf ResNet-50 öznitelik çıkarıcı (sadece 2048-D omurga, sınıf logitleri hariç)
         resnet = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
         self.resnet_backbone = nn.Sequential(*list(resnet.children())[:-1]).to(self.device)
         self.resnet_backbone.eval()
-        self.W_fc = resnet.fc.weight.detach().cpu().numpy().astype(np.float32)
-        self.b_fc = resnet.fc.bias.detach().cpu().numpy().astype(np.float32)
 
         self.im_mean = torch.tensor([0.485, 0.456, 0.406], device=self.device).view(1, 3, 1, 1)
         self.im_std = torch.tensor([0.229, 0.224, 0.225], device=self.device).view(1, 3, 1, 1)
 
-        # 3. Kalibre edilmiş Domuz + Arka Plan (Kaya/Ağaç) referans bankaları yükleniyor
+        # 3. Kalibre edilmiş referans bankası ve öğrenilmiş OOD parametreleri
         self.calibration_data = None
         self.U_tr = None
         self.U_bg = None
         self.mu = None
         self.Vp = None
-        self.w_fg = None
-        self.t1 = 0.0
-        self.t2 = 0.0
+        self.maha_V = None
+        self.maha_eigvals = None
+        self.maha_alpha = 0.0
+        self.maha_beta = 1.0
+        self.feat_mean = None
+        self.feat_std = None
+        self.weights = None
+        self.bias = 0.0
+        self.tau_raw_95 = 0.0
+        self.score_scale = 1.0
+        self.pad_ratio = 0.10
         self.k = 5
-        self.score_offset = 0.7000
-        self.auto_threshold = 0.7000
+        self.auto_threshold = 0.5000
 
         self._load_calibrated_bank()
 
@@ -121,15 +259,20 @@ class ModelAKNNFilter:
     @staticmethod
     def _l2_normalize(x):
         """Verilen öznitelik vektörünü veya matrisini son eksen boyunca L2 birim uzunluğa normalize eder."""
-        x_arr = np.asarray(x, dtype=np.float32)
-        norm = np.linalg.norm(x_arr, axis=-1, keepdims=True)
-        return x_arr / (norm + 1e-8)
+        return l2_normalize(x)
 
     def _extract_crop_raw_resnet(self, crop_bgr):
-        """BGR formatındaki aday kutu kırpıntısını 224x224 boyutuna getirip 2048 boyutlu ResNet-50 vektörü döndürür."""
+        """224x224 (veya ham BGR) kırpıntıdan 2048 boyutlu ResNet-50 öznitelik vektörü döndürür."""
         if crop_bgr is None or crop_bgr.size == 0:
             raise ValueError("Kırpılan görsel bölgesi boş olamaz.")
-        resized_res = cv2.resize(crop_bgr, (224, 224))
+
+        if crop_bgr.shape[:2] != (224, 224):
+            ch, cw = crop_bgr.shape[:2]
+            interp = cv2.INTER_AREA if max(ch, cw) > 224 else cv2.INTER_CUBIC
+            resized_res = cv2.resize(crop_bgr, (224, 224), interpolation=interp)
+        else:
+            resized_res = crop_bgr
+
         chw_res = resized_res[:, :, ::-1].transpose(2, 0, 1).copy()
         t_res = torch.from_numpy(chw_res).float().unsqueeze(0).to(self.device) / 255.0
         t_res = (t_res - self.im_mean) / self.im_std
@@ -140,8 +283,8 @@ class ModelAKNNFilter:
         return vec_res.astype(np.float32)
 
     def compute_calibrated_similarity(self, raw_vec):
-        """2048 boyutlu ResNet-50 vektörünü çift bankalı KNN, PCA alt-uzayı ve morfolojik uyumla
-        değerlendirerek [0, 0.999] aralığında kalibre edilmiş domuz benzerlik skoru (float veya ndarray) döndürür."""
+        """2048 boyutlu ResNet-50 vektörünü 4 saf öznitelik-uzayı OOD sinyali ve öğrenilmiş
+        L2 lojistik regresyon ağırlıklarıyla değerlendirip (0, 1) aralığında domuz skoru döndürür."""
         vec = np.asarray(raw_vec, dtype=np.float32)
         if vec.ndim == 1:
             R = vec[np.newaxis, :]
@@ -154,77 +297,47 @@ class ModelAKNNFilter:
             return np.empty((0,), dtype=np.float32)
 
         U = self._l2_normalize(R)
-
-        # 1. Domuz Referans Bankası KNN
-        sim_tr = U @ self.U_tr.T
-        k_tr = min(self.k, self.U_tr.shape[0])
-        knn_boar = np.mean(np.partition(sim_tr, -k_tr, axis=1)[:, -k_tr:], axis=1)
-
-        # 2. Kaya/Ağaç/Ot Arka Plan Bankası KNN
-        sim_bg = U @ self.U_bg.T
-        k_bg = min(self.k, self.U_bg.shape[0])
-        knn_bg = np.mean(np.partition(sim_bg, -k_bg, axis=1)[:, -k_bg:], axis=1)
-
-        # 3. Ön Plan (Domuz) vs Arka Plan (Kaya/Ağaç) Ayırıcı İzdüşüm
-        fg_proj = U @ self.w_fg
-
-        # 4. Domuz Alt-Uzayı Dikey Mesafe Hatası (Subspace Residual)
-        Uc = U - self.mu
-        res = np.linalg.norm(Uc - (Uc @ self.Vp.T) @ self.Vp, axis=1)
-
-        # 5. Morfolojik Domuz Uyumu
-        logits = R @ self.W_fc.T + self.b_fc
-        swine_logit = np.max(logits[:, [341, 342, 343]], axis=1)
-        other_logits = np.delete(logits, [341, 342, 343], axis=1)
-        max_other = np.max(other_logits, axis=1)
-        swine_margin = swine_logit - max_other
-
-        sw_rank = np.sum(logits > swine_logit[:, None], axis=1) + 1
-        top3_swine_bonus = np.where(sw_rank <= 3, 0.22, 0.0)
-
-        # Kesin Ayı (294-297), Kurt/Çakal (269-275) veya Fil (101, 385, 386) Morfolojik Cezası
-        top1_cls = np.argmax(logits, axis=1)
-        ood_predator_mask = np.isin(
-            top1_cls, [101, 269, 270, 271, 272, 273, 274, 275, 294, 295, 296, 297, 385, 386]
-        ) & (sw_rank > 5)
-        ood_penalty = np.where(ood_predator_mask, -0.08, 0.0)
-
-        # Kapı 1 (OOD Hayvan & Alt-Uzay Kapısı) ve Kapı 2 (Kaya/Ağaç Arka Plan Kapısı)
-        g1 = (
-            knn_boar
-            - 0.35 * knn_bg
-            - 1.90 * res
-            + 0.035 * np.clip(swine_margin, -6.0, 5.0)
-            + top3_swine_bonus
-            + ood_penalty
+        phi = extract_ood_signals(
+            U,
+            self.U_tr,
+            self.U_bg,
+            self.mu,
+            self.Vp,
+            self.maha_V,
+            self.maha_eigvals,
+            self.maha_alpha,
+            self.maha_beta,
+            k=self.k,
         )
-        g2 = (
-            (knn_boar - knn_bg)
-            + 0.80 * fg_proj
-            + 0.040 * np.clip(swine_margin, -6.0, 5.0)
-            + top3_swine_bonus
-        )
-
-        margin = np.minimum(g1 - self.t1, (g2 - self.t2) * 0.7)
-        calibrated_score = np.clip(self.score_offset + 0.35 * margin, 0.0, 0.999)
+        phi_std = (phi - self.feat_mean) / self.feat_std
+        z = phi_std @ self.weights + self.bias
+        calibrated_score = sigmoid((z - self.tau_raw_95) / self.score_scale).astype(np.float32)
         return float(calibrated_score[0]) if calibrated_score.shape[0] == 1 else calibrated_score
 
     def _load_calibrated_bank(self):
-        """Referans .npz dosyasından bankaları, PCA alt-uzayını ve kalibrasyon parametrelerini yükler;
-        seçilen percentile değerine göre auto_threshold değerini ayarlar."""
+        """Referans .npz dosyasından bankaları, PCA/OAS-Mahalanobis parametrelerini ve lojistik
+        ağırlıkları yükler; seçilen percentile değerine göre auto_threshold değerini hesaplar."""
         if not self.bank_path.exists():
             raise FileNotFoundError(f"Kalibre edilmiş referans bankası bulunamadı: {self.bank_path}")
-        with np.load(str(self.bank_path), allow_pickle=True) as data:
+        with np.load(str(self.bank_path), allow_pickle=False) as data:
             self.calibration_data = {k: data[k] for k in data.files}
 
         d = self.calibration_data
-        self.U_tr = d["U_tr"]
-        self.U_bg = d["U_bg"]
-        self.mu = d["mu"]
-        self.Vp = d["Vp"]
-        self.w_fg = d["w_fg"]
-        self.t1 = float(d["t1"])
-        self.t2 = float(d["t2"])
+        self.U_tr = d["U_tr"].astype(np.float32)
+        self.U_bg = d["U_bg"].astype(np.float32)
+        self.mu = d["mu"].astype(np.float64)
+        self.Vp = d["Vp"].astype(np.float64)
+        self.maha_V = d["maha_V"].astype(np.float64)
+        self.maha_eigvals = d["maha_eigvals"].astype(np.float64)
+        self.maha_alpha = float(d["maha_alpha"])
+        self.maha_beta = float(d["maha_beta"])
+        self.feat_mean = d["feat_mean"].astype(np.float64)
+        self.feat_std = d["feat_std"].astype(np.float64)
+        self.weights = d["weights"].astype(np.float64)
+        self.bias = float(d["bias"])
+        self.tau_raw_95 = float(d["tau_raw_95"])
+        self.score_scale = max(float(d["score_scale"]), 1e-3)
+        self.pad_ratio = float(d["pad_ratio"])
         self.k = int(d["k"])
 
         if len(self.U_tr) == 0 or len(self.U_bg) == 0:
@@ -236,15 +349,14 @@ class ModelAKNNFilter:
         if len(s_va) == 0:
             raise ValueError("Doğrulama benzerlik dizisi (s_va) boş olamaz.")
 
-        self.score_offset = float(d["tau_95"]) if "tau_95" in d else float(np.percentile(s_va, 5.0))
-        if np.isclose(self.percentile, 5.0) and "tau_95" in d:
-            self.auto_threshold = self.score_offset
+        if np.isclose(self.percentile, 5.0):
+            self.auto_threshold = 0.5000
         else:
             self.auto_threshold = float(np.percentile(s_va, self.percentile))
 
     def get_calibration_summary(self):
-        """Kalibrasyon bankasındaki eğitim, doğrulama, test ve arka plan istatistiklerini
-        özetleyen bir sözlük (dict) döndürür."""
+        """Kalibrasyon bankasındaki eğitim, doğrulama, test, arka plan istatistiklerini ve
+        öğrenilen model parametrelerini özetleyen bir sözlük (dict) döndürür."""
         d = self.calibration_data
         s_tr = d["s_tr"]
         s_va = d["s_va"]
@@ -255,6 +367,17 @@ class ModelAKNNFilter:
         return {
             "model_path": str(self.model_path),
             "bank_path": str(self.bank_path),
+            "pad_ratio": float(self.pad_ratio),
+            "k": int(self.k),
+            "pca_dim": int(self.Vp.shape[0]),
+            "pca_var_ratio": float(d["pca_var_ratio"]),
+            "shrinkage_alpha": float(self.maha_alpha),
+            "l2_reg": float(d["l2_reg"]),
+            "feature_names": ["knn_boar", "-knn_bg", "-pca_residual", "-maha_dist"],
+            "weights": [float(w) for w in self.weights],
+            "bias": float(self.bias),
+            "tau_raw_95": float(self.tau_raw_95),
+            "score_scale": float(self.score_scale),
             "n_train_imgs": int(d["n_train_imgs"]),
             "n_train_boxes": int(d["n_train_boxes"]),
             "n_bg_patches": int(len(self.U_bg)),
@@ -278,12 +401,14 @@ class ModelAKNNFilter:
             "test_median": float(np.median(s_te)) if len(s_te) > 0 else 0.0,
             "test_tpr_count": int(np.sum(s_te >= tau)) if len(s_te) > 0 else 0,
             "test_tpr_pct": float(np.mean(s_te >= tau) * 100.0) if len(s_te) > 0 else 0.0,
+            "bg_mean": float(np.mean(s_bg)) if len(s_bg) > 0 else 0.0,
+            "bg_median": float(np.median(s_bg)) if len(s_bg) > 0 else 0.0,
             "bg_reject_pct": float(np.mean(s_bg < tau) * 100.0) if len(s_bg) > 0 else 0.0,
         }
 
     def predict(self, source_path, conf=0.25, save_dir=None):
-        """Verilen görselde YOLO ile aday domuzları tespit eder, KNN/OOD filtresi ve sürü bağlamı
-        kurallarıyla doğrular; ham/filtreli tespit listeleri ile kayıt yollarını içeren sözlük döndürür."""
+        """Verilen görselde YOLO ile aday domuzları tespit eder, her kutuyu Letterbox kırpma ve
+        saf ResNet-50 OOD filtresi ile doğrular; ham ve filtreli sonuç sözlüğü döndürür."""
         img_path = self._resolve_input_path(source_path)
         if not img_path.exists():
             raise FileNotFoundError(f"Görsel bulunamadı: {source_path} (Denenen yol: {img_path})")
@@ -306,7 +431,6 @@ class ModelAKNNFilter:
             xyxy_list = boxes.xyxy.cpu().numpy().astype(int)
             conf_list = boxes.conf.cpu().numpy()
 
-            candidates = []
             for box, c in zip(xyxy_list, conf_list):
                 x1, y1, x2, y2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
                 cx1 = max(0, min(w, x1))
@@ -327,51 +451,19 @@ class ModelAKNNFilter:
                     2,
                 )
 
-                crop = img[cy1:cy2, cx1:cx2]
-                if crop.size == 0:
+                if cx2 <= cx1 or cy2 <= cy1:
                     suppressed_detections.append(
                         {"box": box, "conf": float(c), "sim": 0.0, "class": "OOD_suppressed"}
                     )
                     continue
 
+                crop = extract_letterbox_crop(img, (cx1, cy1, cx2, cy2), pad_ratio=self.pad_ratio)
                 raw_vec = self._extract_crop_raw_resnet(crop)
                 sim_score = self.compute_calibrated_similarity(raw_vec)
-                candidates.append(
-                    {
-                        "box": box,
-                        "clamped": (cx1, cy1, cx2, cy2),
-                        "conf": float(c),
-                        "sim": sim_score,
-                    }
-                )
 
-            # Sürü Bütünlüğü Kuralı (Herd Context):
-            # Aynı karede çok yüksek benzerlikli (>= 0.85) kesinleşmiş bir yetişkin domuz
-            # VEYA en az 2 adet onaylanmış domuz (sim >= threshold, conf >= 0.50) varsa,
-            # sürüdeki diğer bireylere (conf >= 0.50 ve 0.56 <= sim < threshold) +0.12 destek uygulanır.
-            n_confirmed_boars = sum(
-                1 for cand in candidates if cand["sim"] >= self.threshold and cand["conf"] >= 0.50
-            )
-            has_confirmed_lead_boar = (
-                any(cand["sim"] >= 0.85 and cand["conf"] >= 0.75 for cand in candidates)
-                or n_confirmed_boars >= 2
-            )
-
-            for cand in candidates:
-                box = cand["box"]
-                cx1, cy1, cx2, cy2 = cand["clamped"]
-                c = cand["conf"]
-                sim_score = cand["sim"]
-                bw, bh = max(1, cx2 - cx1), max(1, cy2 - cy1)
-
-                if has_confirmed_lead_boar and c >= 0.50 and 0.56 <= sim_score < self.threshold:
-                    sim_score = min(0.99, sim_score + 0.12)
-                elif c >= 0.75 and (bw / bh) >= 2.2 and bh < 45 and 0.58 <= sim_score < self.threshold:
-                    # Kare alt/üst sınırında veya tarih bandında yarısı kesilmiş yüksek güvenli domuz sırtı
-                    sim_score = min(0.99, sim_score + 0.12)
                 if sim_score >= self.threshold:
                     filtered_detections.append(
-                        {"box": box, "conf": c, "sim": sim_score, "class": "wild_boar"}
+                        {"box": box, "conf": float(c), "sim": sim_score, "class": "wild_boar"}
                     )
                     cv2.rectangle(filtered_output, (cx1, cy1), (cx2, cy2), (0, 255, 0), 3)
                     cv2.putText(
@@ -385,7 +477,7 @@ class ModelAKNNFilter:
                     )
                 else:
                     suppressed_detections.append(
-                        {"box": box, "conf": c, "sim": sim_score, "class": "OOD_suppressed"}
+                        {"box": box, "conf": float(c), "sim": sim_score, "class": "OOD_suppressed"}
                     )
 
         saved_files = {}
