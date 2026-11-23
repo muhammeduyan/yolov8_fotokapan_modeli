@@ -47,7 +47,8 @@ def print_calibration_report(detector):
         f"Otomatik Alt-Uzay & OAS   : PCA p={stats['pca_dim']} (%{stats['pca_var_ratio'] * 100:.0f} varyans) | "
         f"OAS alpha={stats['shrinkage_alpha']:.6f}"
     )
-    print(f"Öğrenilen 4 Özellik Ağırl.: [{weights_str}] | bias={stats['bias']:+.4f} (L2={stats['l2_reg']:g})")
+    print("Karar Mekanizması         : Bağımsız Çift Kapı (Kapı 1: Saf Domuz OOD ∧ Kapı 2: Arka Plan)")
+    print(f"Kapı 2 Öğrenilen Ağırlık. : [{weights_str}] | bias={stats['bias']:+.4f} (L2={stats['l2_reg']:g})")
     print("-" * 78)
     print(f"1. Domuz Referans Bankası : {stats['n_train_imgs']} görsel | {stats['n_train_boxes']} gerçek yaban domuzu kutusu")
     print(f"2. Arka Plan Bankası (BG) : {n_bg_patches} adet taş/kaya/ağaç/çalı/ot yaması (IoU=0)")

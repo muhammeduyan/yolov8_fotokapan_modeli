@@ -155,6 +155,35 @@ def extract_ood_signals(
     return np.column_stack([knn_boar, -knn_bg, -pca_res, -maha_dist])
 
 
+def compute_dual_gate_margin(
+    phi,
+    ood_mean,
+    ood_std,
+    ood_val_tau,
+    ood_val_scale,
+    feat_mean,
+    feat_std,
+    weights,
+    bias,
+    bg_val_tau,
+    bg_val_scale,
+):
+    """Bağımsız Çift Kapı (Kapı 1: Saf Tek-Sınıflı Domuz OOD ∧ Kapı 2: Arka Plan) birleşik marjını hesaplar.
+
+    Kapı 1 yalnızca domuz dağılımı sinyallerini ([knn_boar, -pca_residual, -maha_dist]) eşit ağırlıkla
+    kullanır ve arka plan bankasına bakmaz; Kapı 2 ise domuz-arka plan ayrımı yapan lojistik skordur.
+    Her iki kapı doğrulama seti ölçeğine getirilip minimum (mantıksal VE) ile birleştirilir.
+    """
+    phi_ood = phi[:, [0, 2, 3]]
+    z_ood = np.mean((phi_ood - ood_mean) / ood_std, axis=1)
+    m_ood = (z_ood - ood_val_tau) / ood_val_scale
+
+    z_bg = ((phi - feat_mean) / feat_std) @ weights + bias
+    m_bg = (z_bg - bg_val_tau) / bg_val_scale
+
+    return np.minimum(m_ood, m_bg), m_ood, m_bg
+
+
 class ModelAKNNFilter:
     """YOLOv8n tespitlerini saf ResNet-50 öznitelik uzayında çift bankalı KNN, PCA alt-uzayı
     ve OAS Mahalanobis uzaklığı ile filtreleyen sınıf."""
@@ -213,10 +242,16 @@ class ModelAKNNFilter:
         self.maha_eigvals = None
         self.maha_alpha = 0.0
         self.maha_beta = 1.0
+        self.ood_mean = None
+        self.ood_std = None
+        self.ood_val_tau = 0.0
+        self.ood_val_scale = 1.0
         self.feat_mean = None
         self.feat_std = None
         self.weights = None
         self.bias = 0.0
+        self.bg_val_tau = 0.0
+        self.bg_val_scale = 1.0
         self.tau_raw_95 = 0.0
         self.score_scale = 1.0
         self.pad_ratio = 0.10
@@ -309,14 +344,25 @@ class ModelAKNNFilter:
             self.maha_beta,
             k=self.k,
         )
-        phi_std = (phi - self.feat_mean) / self.feat_std
-        z = phi_std @ self.weights + self.bias
-        calibrated_score = sigmoid((z - self.tau_raw_95) / self.score_scale).astype(np.float32)
+        z_joint, _, _ = compute_dual_gate_margin(
+            phi,
+            self.ood_mean,
+            self.ood_std,
+            self.ood_val_tau,
+            self.ood_val_scale,
+            self.feat_mean,
+            self.feat_std,
+            self.weights,
+            self.bias,
+            self.bg_val_tau,
+            self.bg_val_scale,
+        )
+        calibrated_score = sigmoid((z_joint - self.tau_raw_95) / self.score_scale).astype(np.float32)
         return float(calibrated_score[0]) if calibrated_score.shape[0] == 1 else calibrated_score
 
     def _load_calibrated_bank(self):
-        """Referans .npz dosyasından bankaları, PCA/OAS-Mahalanobis parametrelerini ve lojistik
-        ağırlıkları yükler; seçilen percentile değerine göre auto_threshold değerini hesaplar."""
+        """Referans .npz dosyasından bankaları, PCA/OAS-Mahalanobis parametrelerini ve bağımsız
+        çift kapı parametrelerini yükler; seçilen percentile değerine göre auto_threshold hesaplar."""
         if not self.bank_path.exists():
             raise FileNotFoundError(f"Kalibre edilmiş referans bankası bulunamadı: {self.bank_path}")
         with np.load(str(self.bank_path), allow_pickle=False) as data:
@@ -331,10 +377,16 @@ class ModelAKNNFilter:
         self.maha_eigvals = d["maha_eigvals"].astype(np.float64)
         self.maha_alpha = float(d["maha_alpha"])
         self.maha_beta = float(d["maha_beta"])
+        self.ood_mean = d["ood_mean"].astype(np.float64)
+        self.ood_std = d["ood_std"].astype(np.float64)
+        self.ood_val_tau = float(d["ood_val_tau"])
+        self.ood_val_scale = max(float(d["ood_val_scale"]), 1e-3)
         self.feat_mean = d["feat_mean"].astype(np.float64)
         self.feat_std = d["feat_std"].astype(np.float64)
         self.weights = d["weights"].astype(np.float64)
         self.bias = float(d["bias"])
+        self.bg_val_tau = float(d["bg_val_tau"])
+        self.bg_val_scale = max(float(d["bg_val_scale"]), 1e-3)
         self.tau_raw_95 = float(d["tau_raw_95"])
         self.score_scale = max(float(d["score_scale"]), 1e-3)
         self.pad_ratio = float(d["pad_ratio"])

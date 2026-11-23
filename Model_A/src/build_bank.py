@@ -24,6 +24,7 @@ import torchvision.models as models
 try:
     from .detector import (
         PROJECT_ROOT,
+        compute_dual_gate_margin,
         extract_letterbox_crop,
         extract_ood_signals,
         l2_normalize,
@@ -33,6 +34,7 @@ except ImportError:
     try:
         from src.detector import (
             PROJECT_ROOT,
+            compute_dual_gate_margin,
             extract_letterbox_crop,
             extract_ood_signals,
             l2_normalize,
@@ -41,6 +43,7 @@ except ImportError:
     except ImportError:
         from detector import (
             PROJECT_ROOT,
+            compute_dual_gate_margin,
             extract_letterbox_crop,
             extract_ood_signals,
             l2_normalize,
@@ -400,6 +403,12 @@ def build_reference_bank(
         exclude_self_bg=True,
     )
 
+    # Kapı 1 (Saf Tek-Sınıflı Domuz OOD): yalnızca U_tr (LOO) üzerinden standartlaştırılır, U_bg hiç görülmez
+    phi_ood_tr = phi_tr[:, [0, 2, 3]]
+    ood_mean = np.mean(phi_ood_tr, axis=0)
+    ood_std = np.maximum(np.std(phi_ood_tr, axis=0), 1e-6)
+
+    # Kapı 2 (Arka Plan Ayırıcı): train domuz vs IoU=0 arka plan üzerinde L2 Lojistik Regresyon
     phi_train = np.vstack([phi_tr, phi_bg])
     y_train = np.concatenate([np.ones(len(phi_tr)), np.zeros(len(phi_bg))])
     feat_mean = np.mean(phi_train, axis=0)
@@ -416,12 +425,28 @@ def build_reference_bank(
         U_te, U_tr, U_bg, mu, Vp, maha_V, maha_eigvals, maha_alpha, maha_beta, k=k
     )
 
-    z_tr = ((phi_tr - feat_mean) / feat_std) @ weights + bias
-    z_bg = ((phi_bg - feat_mean) / feat_std) @ weights + bias
-    z_va = ((phi_va - feat_mean) / feat_std) @ weights + bias
-    z_te = ((phi_te - feat_mean) / feat_std) @ weights + bias
+    # Yalnızca Val setinden Kapı 1, Kapı 2 ve ortak VE (AND) kapısı TPR-95 kalibrasyonu
+    z_ood_va = np.mean((phi_va[:, [0, 2, 3]] - ood_mean) / ood_std, axis=1)
+    ood_val_tau = float(np.percentile(z_ood_va, 5.0))
+    ood_val_scale = max(float(np.std(z_ood_va)), 1e-3)
 
-    # Yalnızca Val setinden TPR-95 kalibrasyonu
+    z_bg_va = ((phi_va - feat_mean) / feat_std) @ weights + bias
+    bg_val_tau = float(np.percentile(z_bg_va, 5.0))
+    bg_val_scale = max(float(np.std(z_bg_va)), 1e-3)
+
+    z_tr, _, _ = compute_dual_gate_margin(
+        phi_tr, ood_mean, ood_std, ood_val_tau, ood_val_scale, feat_mean, feat_std, weights, bias, bg_val_tau, bg_val_scale
+    )
+    z_bg, _, _ = compute_dual_gate_margin(
+        phi_bg, ood_mean, ood_std, ood_val_tau, ood_val_scale, feat_mean, feat_std, weights, bias, bg_val_tau, bg_val_scale
+    )
+    z_va, _, _ = compute_dual_gate_margin(
+        phi_va, ood_mean, ood_std, ood_val_tau, ood_val_scale, feat_mean, feat_std, weights, bias, bg_val_tau, bg_val_scale
+    )
+    z_te, _, _ = compute_dual_gate_margin(
+        phi_te, ood_mean, ood_std, ood_val_tau, ood_val_scale, feat_mean, feat_std, weights, bias, bg_val_tau, bg_val_scale
+    )
+
     tau_raw_95 = float(np.percentile(z_va, 5.0))
     score_scale = max(float(np.std(z_va)), 1e-3)
 
@@ -441,10 +466,16 @@ def build_reference_bank(
         maha_eigvals=maha_eigvals.astype(np.float32),
         maha_alpha=np.float32(maha_alpha),
         maha_beta=np.float32(maha_beta),
+        ood_mean=ood_mean.astype(np.float32),
+        ood_std=ood_std.astype(np.float32),
+        ood_val_tau=np.float32(ood_val_tau),
+        ood_val_scale=np.float32(ood_val_scale),
         feat_mean=feat_mean.astype(np.float32),
         feat_std=feat_std.astype(np.float32),
         weights=weights.astype(np.float32),
         bias=np.float32(bias),
+        bg_val_tau=np.float32(bg_val_tau),
+        bg_val_scale=np.float32(bg_val_scale),
         tau_raw_95=np.float32(tau_raw_95),
         score_scale=np.float32(score_scale),
         pad_ratio=np.float32(pad_ratio),
