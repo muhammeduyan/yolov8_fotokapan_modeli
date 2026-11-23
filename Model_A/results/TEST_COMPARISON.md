@@ -76,3 +76,25 @@ Bu rapor, **Ham Model A (KNN/OOD olmadan YOLOv8n)** ile **KNN/OOD Filtreli Model
 
 - **ID Test Seti (300 Görsel, `443` GT):** KNN/OOD filtresi yanlış pozitifleri `58` → `43` (`-%25.86`) düşürerek Precision'ı `+2.86` puan (`%86.88` → `%89.74`), `F1-Score`'u `IoU >= 0.50` seviyesinde `+0.46` puan (`%86.78` → `%87.24`) ve `IoU >= 0.75` seviyesinde `+0.99` puan (`%80.68` → `%81.67`) artırmıştır. Buna karşılık `8` gerçek domuz kutusunun elenmesi nedeniyle Recall `-1.81` puan (`%86.68` → `%84.88`), standart `mAP@0.5 (conf = 0.001)` ise `0.921035` → `0.895723` (`-0.025312`) olmuştur.
 - **Karma Test Seti (378 Görsel, `130` GT + `298` OOD/Boş Görsel):** Yabancı türler (`wild_goat`, `equus_quagga`, `loxodonta_africana`) ve boş kareler eklendiğinde Ham Model A'nın ürettiği `205` yanlış pozitif, KNN/OOD filtresiyle `33`'e (`-%83.90`) inmiştir; özellikle `wild_goat` (`111` → `14`, `-%87.39`) ve `loxodonta_africana` (`33` → `2`, `-%93.94`) üzerinde güçlü OOD bastırması sağlanmıştır. Yalnızca `2` TP kaybedilirken (`108` → `106`, Recall `-1.54` puan), Precision `+41.75` puan (`%34.50` → `%76.26`), `F1-Score (IoU >= 0.50)` `+30.05` puan (`%48.76` → `%78.81`) ve standart `mAP@0.5 (conf = 0.001)` `+0.188752` (`0.641030` → `0.829782`) yükselmiştir.
+
+---
+
+## 5. Metrikler Neyi Ölçer?
+
+| Metrik / Terim | Neyi Ölçer? |
+|---|---|
+| **GT (Ground-Truth) Kutusu** | Görsellerde insan tarafından doğrulanmış gerçek yaban domuzu (`wild_boar`) etiket kutularıdır. |
+| **IoU (*Intersection over Union*)** | Modelin çizdiği kutu ile gerçek (GT) kutunun örtüşme oranıdır (`0` = hiç örtüşmüyor, `1` = birebir örtüşüyor). `IoU >= 0.50` standart eşleşme eşiği, `IoU >= 0.75` ise daha sıkı konum doğruluğu testidir. |
+| **Güven Eşiği (`conf`)** | YOLO'nun bir kutuyu tahmin olarak kabul etmesi için gereken minimum güven skorudur (`conf >= 0.25` gerçek kullanım çalışma noktası; `conf = 0.001` tüm aday kutuları kapsayan standart mAP hesabı). |
+| **Kalibrasyon Eşiği (`tau = 0.7000`)** | KNN/OOD filtresinin bir aday kutuyu "gerçek yaban domuzu" olarak onaylaması için gereken minimum benzerlik eşiğidir (`%95` doğrulama koruma hedefine göre otomatik kalibre edilmiştir). |
+| **Toplam Tahmin Kutusu** | Modelin test setindeki tüm görsellerde `conf >= 0.25` üzerinde ürettiği toplam `wild_boar` kutu sayısıdır (`TP + FP`). |
+| **True Positives (TP)** | Gerçek bir yaban domuzu kutusuyla belirtilen `IoU` eşiği üzerinde doğru eşleşen tahmin sayısıdır (*ne kadar yüksekse o kadar iyi*). |
+| **False Positives (FP)** | Yanlış alarm sayısıdır: arka planı, başka bir hayvanı (keçi/zebra/fil) veya yanlış konumu `wild_boar` olarak işaretleme (*ne kadar düşükse o kadar iyi*). |
+| **False Negatives (FN)** | Modelin tespit edemediği veya filtrenin yanlışlıkla elediği gerçek yaban domuzu sayısıdır (*ne kadar düşükse o kadar iyi*). |
+| **Precision (Kesinlik)** | `TP / (TP + FP)` — Model "yaban domuzu var" dediğinde bunun yüzde kaçının gerçekten yaban domuzu olduğunu ölçer. Yüksek Precision, az yanlış alarm demektir. |
+| **Recall (Duyarlılık)** | `TP / (TP + FN)` — Görsellerdeki tüm gerçek yaban domuzlarının yüzde kaçının yakalanabildiğini ölçer. Yüksek Recall, az domuz kaçırmak demektir. |
+| **F1-Score** | `2 × (Precision × Recall) / (Precision + Recall)` — Precision ve Recall'un harmonik ortalamasıdır; yanlış alarm azaltma ile gerçek domuz yakalama arasındaki genel dengeyi tek skorda özetler. |
+| **mAP@0.5 (`conf >= 0.25`)** | `IoU >= 0.50` eşiğinde, yalnızca gerçek çalışma noktasındaki (`conf >= 0.25`) tahminlerle oluşturulan Precision–Recall eğrisi altındaki alandır (tek sınıfta `AP@50` ile aynıdır). |
+| **mAP@0.5 (`conf = 0.001` standart YOLO)** | Ultralytics/COCO standardına uygun olarak neredeyse tüm aday kutular (`conf = 0.001`) dahil edilerek `IoU = 0.50` eşiğinde hesaplanan ortalama kesinliktir. |
+| **mAP@0.5:0.95 (`conf = 0.001` standart YOLO)** | `IoU = 0.50`'den `0.95`'e kadar `0.05` aralıkla 10 farklı örtüşme eşiğinde hesaplanan `mAP` değerlerinin ortalamasıdır; hem doğru tespiti hem de kutunun nesneye tam oturma hassasiyetini ölçer. |
+| **FP Azalması** | KNN/OOD filtresi uygulandıktan sonra ham modele kıyasla kaç yanlış pozitifin elendiğini ve yüzdesel düşüş oranını gösterir. |
