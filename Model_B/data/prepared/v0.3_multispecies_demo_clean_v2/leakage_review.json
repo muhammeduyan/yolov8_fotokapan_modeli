@@ -1,0 +1,77 @@
+{
+  "reviewed_images": 3796,
+  "exact_sha256_cross_split_groups": 0,
+  "perceptual_hash_candidates_pd_le_8_dd_le_8": 187,
+  "visually_confirmed_strong_pairs_pd_le_2_dd_le_2": 16,
+  "confirmed_pairs_all_addressed_by_sequence_quarantine": true,
+  "crop_hash_candidates_pd_le_2_dd_le_2": 1,
+  "crop_candidate_addressed_by_sequence_quarantine": true,
+  "active_cross_split_exif_sequence_pairs_le_5_seconds": 0,
+  "confirmed_pairs": [
+    [
+      "images/train/EXT_18f2e2f442_wild_goat_train_0425.jpg",
+      "images/val/EXT_4ed526b458_wild_goat_val_0125.jpg"
+    ],
+    [
+      "images/train/EXT_8314ca5388_loxodonta_africana_train_0214.jpg",
+      "images/val/EXT_a4734c467f_loxodonta_africana_val_0070.jpg"
+    ],
+    [
+      "images/train/EXT_1cf0787203_wild_goat_train_0092.jpg",
+      "images/test/EXT_1f55b1e707_wild_goat_test_0007.jpg"
+    ],
+    [
+      "images/train/EXT_53ecfdecfa_equus_quagga_train_0070.jpg",
+      "images/test/EXT_13561cf327_equus_quagga_test_0045.jpg"
+    ],
+    [
+      "images/train/EXT_651d2aafaa_equus_quagga_train_0127.jpg",
+      "images/val/EXT_b23319dce0_equus_quagga_val_0117.jpg"
+    ],
+    [
+      "images/train/EXT_24e45df8d6_loxodonta_africana_train_0185.jpg",
+      "images/val/EXT_2752278ef2_loxodonta_africana_val_0088.jpg"
+    ],
+    [
+      "images/train/EXT_4bb0dac95a_loxodonta_africana_train_0417.jpg",
+      "images/val/EXT_017260426d_loxodonta_africana_val_0026.jpg"
+    ],
+    [
+      "images/train/EXT_0a4b7917e8_wild_goat_train_0368.jpg",
+      "images/val/EXT_165308ffd6_wild_goat_val_0015.jpg"
+    ],
+    [
+      "images/train/EXT_0a4b7917e8_wild_goat_train_0368.jpg",
+      "images/val/EXT_b8ec435a00_wild_goat_val_0056.jpg"
+    ],
+    [
+      "images/train/EXT_70c40c4ca0_empty_train_0137.jpg",
+      "images/val/EXT_ce9767456b_empty_val_0018.jpg"
+    ],
+    [
+      "images/train/EXT_de31225121_wild_goat_train_0051.jpg",
+      "images/val/EXT_b8ec435a00_wild_goat_val_0056.jpg"
+    ],
+    [
+      "images/train/EXT_aab41872bf_equus_quagga_train_0019.jpg",
+      "images/test/EXT_176aa39c49_equus_quagga_test_0002.jpg"
+    ],
+    [
+      "images/train/EXT_cace13eda7_equus_quagga_train_0170.jpg",
+      "images/test/EXT_c05f6da3b2_equus_quagga_test_0009.jpg"
+    ],
+    [
+      "images/train/EXT_6d6744c3e3_empty_train_0044.jpg",
+      "images/val/EXT_ae97580e42_empty_val_0045.jpg"
+    ],
+    [
+      "images/train/EXT_7797b28da9_equus_quagga_train_0312.jpg",
+      "images/test/EXT_d9a719fe83_equus_quagga_test_0006.jpg"
+    ],
+    [
+      "images/train/EXT_e6da91ae4e_wild_goat_train_0224.jpg",
+      "images/test/EXT_e9a3671585_wild_goat_test_0079.jpg"
+    ]
+  ],
+  "policy": "test retained; val retained over train; removed lower-priority copies quarantined"
+}

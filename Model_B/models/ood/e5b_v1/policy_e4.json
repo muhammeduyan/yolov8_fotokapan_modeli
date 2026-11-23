@@ -1,0 +1,11 @@
+{
+  "enabled": true,
+  "sn_min_score": 0.9,
+  "knn_min_distance": 0.15,
+  "knownness_max": 0.95,
+  "rule": "REVIEW AND outside species AND score>=s AND distance>=d AND knownness<=k",
+  "blank_action": "REVIEW",
+  "selection_split": "policy calibration only, 649 known + 28 proxy unknown",
+  "grid_candidates": 125,
+  "no_857_final_data_used": true
+}

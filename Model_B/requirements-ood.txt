@@ -1,0 +1,3 @@
+# Install with outputs/model_b_ood/torch_constraints.txt to preserve local CUDA wheels.
+open_clip_torch==3.3.0
+scikit-learn>=1.3

@@ -7,7 +7,7 @@ Bu depo, fotokapan (camera trap) görüntülerinde yaban hayatı tespiti ve dağ
 | Klasör | Açıklama | Durum |
 |---|---|---|
 | **[Model_A/](Model_A/README.md)** | Yerel Yaban Domuzu (`wild_boar` v0.4) — YOLOv8n + ResNet-50 Çift Bankalı KNN & PCA OOD Filtresi | Aktif |
-| **`Model_B/`** | Çok sınıflı / ek model çalışmaları | Planlanıyor |
+| **[Model_B/](Model_B/README.md)** | Dört sınıflı YOLOv8n + BioCLIP/KNN/learned gate/SpeciesNet OOD zinciri | Hazırlandı |
 
 ## Hızlı Başlangıç (`Model_A`)
 

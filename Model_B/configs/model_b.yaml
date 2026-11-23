@@ -1,0 +1,29 @@
+name: model_b_multispecies_clean_v2
+task: detect
+weights: models/multispecies_v0.3_demo/best.pt
+base_model: yolov8n.pt
+data: data/prepared/v0.3_multispecies_demo_clean_v2/data.yaml
+clean_data: data/prepared/v0.3_multispecies_demo_clean_v2/data.yaml
+classes:
+  0: wild_boar
+  1: wild_goat
+  2: equus_quagga
+  3: loxodonta_africana
+train:
+  epochs: 40
+  batch: 4
+  imgsz: 640
+  seed: 42
+  deterministic: true
+  device: auto
+  workers: 0
+  pretrained: true
+  optimizer: AdamW
+  lr0: 0.00125
+evaluation:
+  split: test
+  conf: 0.25
+  iou: 0.50
+  max_det: 300
+  device: auto
+output_root: results/experiments

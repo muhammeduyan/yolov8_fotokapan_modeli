@@ -1,0 +1,60 @@
+{
+  "dataset": "v0.3_multispecies_demo_clean_v2",
+  "source_dataset": "data/prepared/v0.3_multispecies_demo_clean_v1",
+  "method": {
+    "sequence_rule": "same EXIF camera make/model and capture timestamps within 5 seconds; test retained over val over train",
+    "original_format_rule": "BMP payload with .jpg extension converted to JPEG in v2; original copied to quarantine/format_repairs"
+  },
+  "reviewed_images": 3796,
+  "retained_images": 3708,
+  "quarantined_sequence_images": 88,
+  "sequence_components": 69,
+  "test_images_changed": 0,
+  "format_repairs": 1,
+  "splits": {
+    "train": {
+      "images": 2577,
+      "boxes": 4457,
+      "empty_images": 419,
+      "classes": {
+        "1": 1733,
+        "2": 967,
+        "3": 917,
+        "0": 840
+      }
+    },
+    "val": {
+      "images": 753,
+      "boxes": 1333,
+      "empty_images": 120,
+      "classes": {
+        "2": 283,
+        "1": 544,
+        "3": 253,
+        "0": 253
+      }
+    },
+    "test": {
+      "images": 378,
+      "boxes": 642,
+      "empty_images": 60,
+      "classes": {
+        "1": 273,
+        "2": 129,
+        "3": 110,
+        "0": 130
+      }
+    }
+  },
+  "classes": {
+    "0": "wild_boar",
+    "1": "wild_goat",
+    "2": "equus_quagga",
+    "3": "loxodonta_africana"
+  },
+  "open_issues": [
+    "pHash near-similarity candidates with distance >2 were not automatically removed; they require manual review/contact sheets.",
+    "No training was run.",
+    "No OOD code or model weights were changed."
+  ]
+}
