@@ -30,3 +30,13 @@ v0.3_wild_boar_closeup/
 !**/model/*.pt
 *.npz
 !**/model/*.npz
+
+# Model B assets are intentionally tracked with Git LFS.
+!Model_B/models/**/*.pt
+!Model_B/models/**/*.bin
+!Model_B/models/**/*.npz
+
+# Model B datasets stay external; keep only metadata/configuration files.
+Model_B/data/**/images/
+Model_B/data/**/labels/
+Model_B/data/**/quarantine/

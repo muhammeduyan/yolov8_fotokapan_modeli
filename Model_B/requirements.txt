@@ -1,0 +1,11 @@
+ultralytics==8.4.174
+opencv-python>=4.8.0
+pandas>=2.0.0
+numpy>=1.24.0
+PyYAML>=6.0
+Pillow>=10.0.0
+
+# Used directly by optional MegaDetector/pre-annotation utilities.
+# Keep torch unpinned because CUDA wheels must match the local machine.
+torch
+PytorchWildlife

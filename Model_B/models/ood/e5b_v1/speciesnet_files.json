@@ -1,0 +1,30 @@
+{
+  "always_crop_99710272_22x8_v12_epoch_00148.labels.20260609.txt": {
+    "bytes": 255693,
+    "sha256": "e0c41415d9b29dfd6d2e2494205d1197d28595cc6f69cb129495f9827155547e"
+  },
+  "always_crop_99710272_22x8_v12_epoch_00148.pt": {
+    "bytes": 224393837,
+    "sha256": "d099632044e92a0446869e06e5eb282e24706d5266b4acf5b42f5f23e2b50ade"
+  },
+  "geofence_release.20260609.json": {
+    "bytes": 6264811,
+    "sha256": "27a88e932e411f73a4937c935fe36cf61a9060a1c488f4c69ade3f19eb8507d1"
+  },
+  "info.json": {
+    "bytes": 410,
+    "sha256": "037133d121d48a5cd53884cdee01374564f32e2cc6f1375ffb39a9bc1cf6000a"
+  },
+  "official_4.0.3a.tar.gz": {
+    "bytes": 209008825,
+    "sha256": "d15d070113a03d548ebd1531fd7ca88268bdb0ba00323cfa904902a2f167b6ae"
+  },
+  "README.md": {
+    "bytes": 119,
+    "sha256": "5707c487b20aef8bb779d63c32d8ca11ee7d66c12e46ff4a366047622bf49811"
+  },
+  "taxonomy_release.20260609.txt": {
+    "bytes": 357417,
+    "sha256": "4bd5d1a85a63857f557d487c5d86c0911173c59b34977ebc0ee909484ce277f2"
+  }
+}

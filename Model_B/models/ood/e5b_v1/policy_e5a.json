@@ -1,0 +1,13 @@
+{
+  "thresholds": {
+    "equus_quagga": 0.9,
+    "loxodonta_africana": 0.9,
+    "wild_boar": 0.9,
+    "wild_goat": 0.9
+  },
+  "status": "no_supported_improving_policy_keep_0.90",
+  "baseline_threshold": 0.9,
+  "selection_data": "policy calibration only",
+  "no_857_data_used_for_selection": true,
+  "routing": "original B REVIEW AND E4 REVIEW AND exact full-species top1 agreement"
+}

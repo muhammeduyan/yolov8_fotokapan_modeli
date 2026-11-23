@@ -1,0 +1,56 @@
+[
+  {
+    "source": "outputs/model_b_ood/e2_known_veto_v1_20261103/run_e2.py",
+    "target": "src/model_b_ood/runtime/rules/e2.py",
+    "function": "is_known_decision",
+    "ast_sha256": "fcf6860ea8962502dc32461a814bf90578af65fbb0cffb3707e5d941d3b75773"
+  },
+  {
+    "source": "outputs/model_b_ood/e2_known_veto_v1_20261103/run_e2.py",
+    "target": "src/model_b_ood/runtime/rules/e2.py",
+    "function": "veto",
+    "ast_sha256": "9945b7fba1a4959e0ea013acc58065976825fa3fefcc265aa763052becadec75"
+  },
+  {
+    "source": "outputs/model_b_ood/e3_veto_plus_original_review_v1_20261103/run_e3.py",
+    "target": "src/model_b_ood/runtime/rules/e3.py",
+    "function": "e3_decision",
+    "ast_sha256": "89c07b1c59898f697a35402c9c0a74a0cc6fddb6c28002d0bf2a78d2c75e0804"
+  },
+  {
+    "source": "outputs/model_b_ood/e4_review_to_unknown_v1_20261103/run_e4.py",
+    "target": "src/model_b_ood/runtime/rules/e4.py",
+    "function": "scientific",
+    "ast_sha256": "aa95644c3a17af8cb8c439068f43edc864993828c074ebc4d18d04135eed3bc9"
+  },
+  {
+    "source": "outputs/model_b_ood/e4_review_to_unknown_v1_20261103/run_e4.py",
+    "target": "src/model_b_ood/runtime/rules/e4.py",
+    "function": "outside_species",
+    "ast_sha256": "6f5ebe20c918bbbd6194131d8d51c6d8183097358d42646b523cb6cd9aa57fe0"
+  },
+  {
+    "source": "outputs/model_b_ood/e4_review_to_unknown_v1_20261103/run_e4.py",
+    "target": "src/model_b_ood/runtime/rules/e4.py",
+    "function": "decide_e4",
+    "ast_sha256": "3d3d46636e5e983db74b994c48d27ddb903275aa4e4887b73739669bd19c4da6"
+  },
+  {
+    "source": "outputs/model_b_ood/e5b_context_125_v1_20261103/run_e5b.py",
+    "target": "src/model_b_ood/runtime/rules/e5b.py",
+    "function": "scientific",
+    "ast_sha256": "ad65376d57b599c69d5f6324a4ada16aa37c11e2dfdbb07f7fcfca06ac7c6c14"
+  },
+  {
+    "source": "outputs/model_b_ood/e5b_context_125_v1_20261103/run_e5b.py",
+    "target": "src/model_b_ood/runtime/rules/e5b.py",
+    "function": "geometry",
+    "ast_sha256": "17ce1639cce0abdf48bcf4f83f4cafa5933d93bfad063706af83f140c0bbbe20"
+  },
+  {
+    "source": "outputs/model_b_ood/e5b_context_125_v1_20261103/run_e5b.py",
+    "target": "src/model_b_ood/runtime/rules/e5b.py",
+    "function": "rescue",
+    "ast_sha256": "5561d0a736b998d0bee94e435de992dfcd1f4b1b147bb8471790e058049fbddc"
+  }
+]

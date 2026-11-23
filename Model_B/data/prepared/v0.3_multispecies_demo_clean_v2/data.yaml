@@ -1,0 +1,8 @@
+train: images/train
+val: images/val
+test: images/test
+names:
+  0: wild_boar
+  1: wild_goat
+  2: equus_quagga
+  3: loxodonta_africana
